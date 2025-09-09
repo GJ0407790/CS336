@@ -14,6 +14,9 @@ from cs336_basics.modules.embedding import Embedding
 from cs336_basics.modules.rmsnorm import RMSNorm
 from cs336_basics.modules.swiglu import SwiGLU
 from cs336_basics.modules.rope import Rope
+
+from cs336_basics.modules.attention import CausalMultiHeadSelfAttention, softmax, scaled_dot_product_attention
+
 from cs336_basics.train_bpe import train_bpe
 
 def run_linear(
@@ -37,7 +40,7 @@ def run_linear(
     linear = Linear(in_features=d_in, out_features=d_out)
     linear.load_state_dict(state_dict={"weights": weights})
 
-    return linear.forward(in_features)
+    return linear(in_features)
 
 
 def run_embedding(
@@ -61,7 +64,7 @@ def run_embedding(
     embedding = Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
     embedding.load_state_dict(state_dict={"weights": weights})
 
-    return embedding.forward(token_ids)
+    return embedding(token_ids)
 
 
 def run_swiglu(
@@ -101,7 +104,7 @@ def run_swiglu(
         "w3": w3_weight,
     })
 
-    return swiglu.forward(in_features)
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -122,7 +125,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -156,7 +159,14 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    causal_mha = CausalMultiHeadSelfAttention(d_model=d_model, num_heads=num_heads, rope=None)
+
+    causal_mha.load_state_dict(state_dict={
+        "W_qkv": torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0),
+        "W_o": o_proj_weight,
+    })
+
+    return causal_mha(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -196,7 +206,15 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    rope = Rope(theta=theta, d_k=(d_model // num_heads), max_seq_len=max_seq_len)
+    causal_mha = CausalMultiHeadSelfAttention(d_model=d_model, num_heads=num_heads, rope=rope)
+
+    causal_mha.load_state_dict(state_dict={
+        "W_qkv": torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0),
+        "W_o": o_proj_weight,
+    })
+
+    return causal_mha(in_features, token_positions)
 
 
 def run_rope(
@@ -220,7 +238,7 @@ def run_rope(
     """
     rope = Rope(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
 
-    return rope.forward(in_query_or_key, token_positions)
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -401,7 +419,7 @@ def run_rmsnorm(
     rmsnorm = RMSNorm(d_model=d_model, eps=eps)
     rmsnorm.load_state_dict(state_dict={"gains": weights})
 
-    return rmsnorm.forward(in_features)
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -454,7 +472,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features, dim=dim)
 
 
 def run_cross_entropy(
