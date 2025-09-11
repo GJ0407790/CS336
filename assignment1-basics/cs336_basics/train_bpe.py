@@ -3,7 +3,7 @@ import regex as re
 import multiprocessing
 
 from typing import BinaryIO
-from collections import Counter
+from collections import Counter, defaultdict
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 BYTE_SIZE = 256
@@ -182,10 +182,16 @@ def train_bpe(
 
     # pair frequencies
     pair_freqs= Counter()
+    pair_to_words = defaultdict(set)
 
     for word, freq in word_freqs.items():
+        if len(word) < 2:
+            continue
+
         for first, second in zip(word[:-1], word[1:]):
+            pair = (first, second)
             pair_freqs[(first, second)] += freq
+            pair_to_words[pair].add(word)
 
     # Merging loop
     while len(vocab) < vocab_size:        
@@ -195,7 +201,7 @@ def train_bpe(
             break
 
         # Find the most frequent pair, break ties by lexicographical order
-        best_pair = max(pair_freqs, key=pair_freqs.get)
+        best_pair = max(pair_freqs, key=lambda p: (pair_freqs[p], (vocab[p[0]], vocab[p[1]])))
 
         # Create new token for the merged pair
         b0, b1 = vocab[best_pair[0]], vocab[best_pair[1]]
@@ -205,26 +211,29 @@ def train_bpe(
         vocab[new_token_id] = b0 + b1
 
         # Update the frequency that has best_pair in it
-        new_word_freqs = Counter()
+        words_to_update = list(pair_to_words[best_pair])
 
-        for word, freq in word_freqs.items():
-            if best_pair[0] not in word and best_pair[1] not in word:
-                new_word_freqs[word] += freq
-                continue
-            
-            # Potentially need to merge the pair in word
+        for word in words_to_update:
+            freq = word_freqs.pop(word)
+
+            # Decrement stats for all pairs in old_word
+            for old_p1, old_p2 in zip(word[:-1], word[1:]):
+                old_pair = (old_p1, old_p2)
+                pair_freqs[old_pair] -= freq
+                pair_to_words[old_pair].discard(word)
+
+            # Create new word with the merged pair
             new_word = merge_word_tokens(word, best_pair, new_token_id)
-            new_word_freqs[new_word] += freq
+            word_freqs[new_word] = freq
 
-            for p1, p2 in zip(word[:-1], word[1:]):
-                if (p1, p2) != best_pair:
-                    pair_freqs[(p1, p2)] -= freq
-            
-            for p1, p2 in zip(new_word[:-1], new_word[1:]):
-                pair_freqs[(p1, p2)] += freq
+            if len(new_word) > 1:
+                for new_p1, new_p2 in zip(new_word[:-1], new_word[1:]):
+                    new_pair = (new_p1, new_p2)
+                    pair_freqs[new_pair] += freq
+                    pair_to_words[new_pair].add(new_word)
 
         # Update pair_frequency incrementally
-        word_freqs = new_word_freqs
         del pair_freqs[best_pair]
+        del pair_to_words[best_pair]
     
     return vocab, merges
