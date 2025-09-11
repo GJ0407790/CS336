@@ -88,7 +88,8 @@ def worker_pretokenize(
 
 def pretokenize(
     input_path: str | os.PathLike,
-    num_processes: int
+    num_processes: int,
+    special_tokens: list[str]
 ) -> Counter:
     """
     Spawn num_processes to pretokenize the input file using worker_pretokenize
@@ -106,12 +107,29 @@ def pretokenize(
     ]
 
     with multiprocessing.Pool(processes=num_processes) as pool:
-        list_of_counters = pool.starmap(pretokenize, tasks)
+        list_of_counters = pool.starmap(worker_pretokenize, tasks)
 
         for counter in list_of_counters:
             final_token_counts.update(counter)
     
     return final_token_counts
+
+def merge_word_tokens(
+    word_tuple: tuple[int, ...],
+    pair_to_merge: tuple[int, int],
+    new_token_id: int
+) -> tuple[int, ...]:
+    """Merges all occurrences of a specific pair within a single tokenized word."""
+    new_word = []
+    i = 0
+    while i < len(word_tuple):
+        if i < len(word_tuple) - 1 and (word_tuple[i], word_tuple[i+1]) == pair_to_merge:
+            new_word.append(new_token_id)
+            i += 2
+        else:
+            new_word.append(word_tuple[i])
+            i += 1
+    return tuple(new_word)
 
 def train_bpe(
     input_path: str | os.PathLike,
@@ -139,41 +157,74 @@ def train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    ## Pretokenization
-    num_processes = 4
-    token_counts = pretokenize(input_path, num_processes)
+    assert vocab_size >= len(special_tokens) + BYTE_SIZE, "Vocab size is too small"
 
-    pair_frequency = Counter()
-
-    for token, count in token_counts.items():
-        token_bytes = list(token)
-
-        for first, second in zip(token_bytes[:-1], token_bytes[1:]):
-            pair_frequency[(first, second)] += count
-
-    ## Merging process
+    # Initial vocab and merges
+    # Merging process
     merges = []
 
-    ## Initial vocab size (256 bytes value + special tokens)
+    # Initial vocab size (256 bytes value + special tokens)
     vocab = {
         val: bytes([val]) for val in range(BYTE_SIZE)
     }
 
     for idx, special_token in enumerate(special_tokens):
-        vocab[len(vocab)] = bytes(special_token)
+        vocab[len(vocab)] = special_token.encode("utf-8")
+    
+    # Pretokenization
+    num_processes = 4
+    token_counts = pretokenize(input_path, num_processes, special_tokens)
 
+    # tuple convert bytes into integers
+    word_freqs = {
+        tuple(word): count for word, count in token_counts.items()
+    }
+
+    # pair frequencies
+    pair_freqs= Counter()
+
+    for word, freq in word_freqs.items():
+        for first, second in zip(word[:-1], word[1:]):
+            pair_freqs[(first, second)] += freq
+
+    # Merging loop
     while len(vocab) < vocab_size:        
         # Break when there's no more pair to merge
-        if len(pair_frequency) == 0:
+        if not pair_freqs:
+            print("No more pairs to merge. Stopping early.")
             break
 
-        # Add to vocab and merges
-        most_frequent_pair = max(pair_frequency, key=lambda k: (pair_frequency[k], k))
+        # Find the most frequent pair, break ties by lexicographical order
+        best_pair = max(pair_freqs, key=pair_freqs.get)
 
-        merges.append(most_frequent_pair)
-        vocab[len(vocab)] = bytes(most_frequent_pair[0] + most_frequent_pair[1])
+        # Create new token for the merged pair
+        b0, b1 = vocab[best_pair[0]], vocab[best_pair[1]]
+        merges.append((b0, b1))
+        
+        new_token_id = len(vocab)
+        vocab[new_token_id] = b0 + b1
+
+        # Update the frequency that has best_pair in it
+        new_word_freqs = Counter()
+
+        for word, freq in word_freqs.items():
+            if best_pair[0] not in word and best_pair[1] not in word:
+                new_word_freqs[word] += freq
+                continue
+            
+            # Potentially need to merge the pair in word
+            new_word = merge_word_tokens(word, best_pair, new_token_id)
+            new_word_freqs[new_word] += freq
+
+            for p1, p2 in zip(word[:-1], word[1:]):
+                if (p1, p2) != best_pair:
+                    pair_freqs[(p1, p2)] -= freq
+            
+            for p1, p2 in zip(new_word[:-1], new_word[1:]):
+                pair_freqs[(p1, p2)] += freq
 
         # Update pair_frequency incrementally
-        pair_frequency.remove(most_frequent_pair)
+        word_freqs = new_word_freqs
+        del pair_freqs[best_pair]
     
     return vocab, merges
