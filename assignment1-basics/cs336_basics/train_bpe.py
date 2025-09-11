@@ -54,6 +54,15 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+def iter_split(pattern: re.Pattern, text: str):
+    last = 0
+    for m in pattern.finditer(text):
+        if last != m.start():
+            yield text[last:m.start()]  # chunk before match
+        last = m.end()
+    if last < len(text):
+        yield text[last:]
+
 def worker_pretokenize(
     input_path: str | os.PathLike,
     start: int,
@@ -70,10 +79,9 @@ def worker_pretokenize(
         f.seek(start)
         chunk = f.read(end - start).decode("utf-8")
 
-        special_token_pattern = f"{'|'.join(re.escape(token) for token in special_tokens)}"
-        split_chunks = re.split(special_token_pattern, chunk)
+        special_token_pattern = re.compile(f"{'|'.join(re.escape(token) for token in special_tokens)}")
 
-        for split_chunk in split_chunks:
+        for split_chunk in iter_split(special_token_pattern, chunk):
             matches = re.finditer(PAT, split_chunk)
 
             for match in matches:
