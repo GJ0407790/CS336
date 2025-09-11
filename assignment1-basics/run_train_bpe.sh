@@ -10,7 +10,7 @@ if [ ! -d "$OUTPUT_DIR" ]; then
   mkdir -p "$OUTPUT_DIR"
 fi
 
-uv run python cs336_basics/train_bpe.py \
+uv run python cs336_basics/tokenizer/train_bpe.py \
    --input_path $INPUT_PATH \
    --vocab_size $VOCAB_SIZE \
    --num_processes $NUM_PROC \
