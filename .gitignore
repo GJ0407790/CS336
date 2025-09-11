@@ -1,5 +1,8 @@
 # Python virtual environment
 venv/
 
+# Data
+data/
+
 # Python cache
 __pycache__/

@@ -1,9 +1,10 @@
-import os
+import os, time, json, multiprocessing
 import regex as re
-import multiprocessing
 
 from typing import BinaryIO
 from collections import Counter, defaultdict
+from tqdm import tqdm
+
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 BYTE_SIZE = 256
@@ -143,6 +144,7 @@ def train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
     special_tokens: list[str],
+    num_processes: int = 4,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     """Given the path to an input corpus, run train a BPE tokenizer and
     output its vocabulary and merges.
@@ -180,8 +182,10 @@ def train_bpe(
         vocab[len(vocab)] = special_token.encode("utf-8")
     
     # Pretokenization
-    num_processes = 4
+    pretokenize_start = time.time()
     token_counts = pretokenize(input_path, num_processes, special_tokens)
+    pretokenize_end = time.time()
+    print(f"Pretokenization took {pretokenize_end - pretokenize_start:.2f} seconds")
 
     # tuple convert bytes into integers
     word_freqs = {
@@ -200,9 +204,12 @@ def train_bpe(
             pair = (first, second)
             pair_freqs[(first, second)] += freq
             pair_to_words[pair].add(word)
+    
+    num_merges = vocab_size - len(vocab)
 
     # Merging loop
-    while len(vocab) < vocab_size:        
+    merging_start = time.time()
+    for i in tqdm(range(num_merges), desc="Merging tokens"):
         # Break when there's no more pair to merge
         if not pair_freqs:
             print("No more pairs to merge. Stopping early.")
@@ -244,4 +251,101 @@ def train_bpe(
         del pair_freqs[best_pair]
         del pair_to_words[best_pair]
     
+    merging_end = time.time()
+    print(f"Merging took {merging_end - merging_start:.2f} seconds")
+    
     return vocab, merges
+
+def save_tokenizer_data(vocab, merges, output_path):
+    """Saves vocab and merges to a single JSON file."""
+    
+    # 1. Prepare vocab for JSON: encode bytes to Base64 strings
+    # JSON keys must be strings, so we convert the integer token IDs
+    json_vocab = {
+        str(token_id): token_bytes.decode('latin1')  # Use 'latin1' to preserve byte values
+        for token_id, token_bytes in vocab.items()
+    }
+    
+    # 2. Prepare merges for JSON: encode bytes to Base64 strings
+    json_merges = [
+        (b0.decode('latin1'), b1.decode('latin1'))  # Use 'latin1' to preserve byte values
+        for b0, b1 in merges
+    ]
+    
+    # 3. Combine into a single dictionary
+    tokenizer_data = {
+        "vocab": json_vocab,
+        "merges": json_merges
+    }
+    
+    # 4. Save to a single file
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(tokenizer_data, f, indent=2)
+
+def load_tokenizer_data(input_path):
+    """Loads vocab and merges from a JSON file."""
+    with open(input_path, "r", encoding="utf-8") as f:
+        tokenizer_data = json.load(f)
+    
+    # 1. Load and decode vocab
+    vocab = {
+        int(token_id): token_b64.encode('latin1')
+        for token_id, token_b64 in tokenizer_data["vocab"].items()
+    }
+    
+    # 2. Load and decode merges
+    merges = [
+        (b0_b64.encode('latin1'), b1_b64.encode('latin1'))
+        for b0_b64, b1_b64 in tokenizer_data["merges"]
+    ]
+    
+    return vocab, merges
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input_path",
+        type=str,
+        required=True,
+        help="Path to input text file for training BPE tokenizer",
+    )
+    parser.add_argument(
+        "--vocab_size",
+        type=int,
+        required=True,
+        help="Size of the vocabulary (including special tokens)",
+    )
+    parser.add_argument(
+        "--num_processes",
+        type=int,
+        default=4,
+        help="Number of processes to use for pretokenization",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=".",
+        help="Directory to save the vocab and merges files",
+    )
+    parser.add_argument(
+        "--special_tokens",
+        type=str,
+        nargs="+",
+        default=["<|endoftext|>"],
+        help="List of special tokens to be added to the vocabulary",
+    )
+    args = parser.parse_args()
+
+    vocab, merges = train_bpe(
+        args.input_path,
+        args.vocab_size,
+        args.special_tokens,
+        args.num_processes
+    )
+
+    print("Final vocab size:", len(vocab))
+    print("Final merges size:", len(merges))
+
+    # Save vocab and merges
+    save_tokenizer_data(vocab, merges, os.path.join(args.output_dir, "tokenizer.json"))
