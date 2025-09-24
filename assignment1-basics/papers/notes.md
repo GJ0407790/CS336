@@ -43,4 +43,73 @@ $$
 
 ## [RoPE](https://arxiv.org/abs/2104.09864) (Su 2021)
 
+- Attention is position agnostic. Hence, need to inject postional information to query and key tokens.
+- RoPE suggested using a rotation (refer to matrix below) to inject the positional information:
+    - Let the original query and key vectors be $q$ and $k$ respectively.
+    - The rotated vectors are $q' = R_{\theta} q$ and $k' = R_{\theta} k$.
+$$
+R_\theta =
+\begin{bmatrix}
+\cos{\theta} & -\sin{\theta} \\
+\sin{\theta} & \cos{\theta} \\
+\end{bmatrix}
+$$
+
+- Rotation does not increase the norm of the vector thereby preventing exploding gradients.
+- RoPE provides both absolute and relative positional information.
+    - For example, consider the example below, the dot product of "I" and "dog" from both sentences will be the same.
+    - $q' \cdot k' = q'^Tk' = (R_{m\theta}q)^T(R_{n\theta}k) = q^T(R_{-m\theta}R_{n\theta})k = q^TR_{(n-m)\theta}k$
+
+![alt text](images/rope.png)
+
+- In particular, each rotation matrix is apply to pairs of embedding elements $\in \mathbb{R}^d$.
+    - The angle increases linearly with the position.
+    - The angle also decreases exponentially with the dimension.
+$$
+\theta_{i,k}=\frac{i}{\Theta^{(2k-1)/d}}, k \in \{1, \ldots, d/2\}
+$$
+
+- An efficient implementation of RoPE for a single embedding at position $i$ is as follows:
+
+$$
+R^ix=
+\begin{bmatrix}
+x_1 \\
+x_2 \\
+\vdots \\
+x_{d-1} \\
+x_d \\
+\end{bmatrix}
+
+\otimes
+\begin{bmatrix}
+\cos{\theta_{i,1}} \\
+\cos{\theta_{i,1}} \\
+\vdots \\
+\cos{\theta_{i,d/2}} \\
+\cos{\theta_{i,d/2}}
+\end{bmatrix}
+
++
+
+\begin{bmatrix}
+-x_2 \\
+x_1 \\
+\vdots \\
+-x_d \\
+x_{d-1} \\
+\end{bmatrix}
+
+\otimes
+\begin{bmatrix}
+\sin{\theta_{i,1}} \\
+\sin{\theta_{i,1}} \\
+\vdots \\
+\sin{\theta_{i,d/2}} \\
+\sin{\theta_{i,d/2}}
+\end{bmatrix}
+$$
+
+
+
 
