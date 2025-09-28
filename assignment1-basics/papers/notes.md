@@ -63,7 +63,7 @@ $$
 ![alt text](images/rope.png)
 
 - In particular, each rotation matrix is apply to pairs of embedding elements $\in \mathbb{R}^d$.
-    - The angle increases linearly with the position.
+    - The angle increases linearly with the position. The angle at position 1 will be $\theta$, position 2 will be $2\theta$, position k will be $k\theta$.
     - The angle also decreases exponentially with the dimension.
 $$
 \theta_{i,k}=\frac{i}{\Theta^{(2k-1)/d}}, k \in \{1, \ldots, d/2\}
@@ -110,6 +110,28 @@ x_{d-1} \\
 \end{bmatrix}
 $$
 
+## [Round and round](https://arxiv.org/abs/2410.06205) (Barbero 2024)
+
+- Angles are typically set as $\theta_{k}=\Theta^{-(2k-1)/d}, k \in \{1, \ldots, d/2\}$
+    - $\theta_1$ is the fastest rotating component with 1 radian per token.
+    - $\theta_{d/2}$ is the slowest rotating component around $1/\Theta$ per token.
+    - Default $\Theta$ is set to $10,000$, recently increased to $500,000$.
+- For high frequencies, a small perturbation in token sequence give largely different activation contribution, i.e. dot product is greatly affected.
+- Using $q \cdot v \leq ||q||||v||$, look a the norm of $q, v$ as an upper bound for dot product.
+
+![alt text](images/round.png)
+
+### High Frequencies: Positional Attention
+- In Figure 4, head 5 and head 8 correspond to positional attention heads used high frequencies.
+    - Head 5 keeps track of the token position and head 8 keeps track of the previous token position.
+- High frequencies in RoPE provide a mechanism to construct postional attention patterns.
+
+### Low Frequencies: Semantic Attention
+- In Figure 3, lowest ferquencies have much higher norm on average. And some high frequency usage in the first and last layer.
+- Low frequencies in RoPE tend to be used by semantic attention heads, as the rotation based on relative distance between tokens has minimal impact on the dot product.
+- Low frequencies are most invariant to relative distance but **eventually misaligned** over long relative distance, which explains why increasing $\Theta$ to $500,000$ seems helpful.
+- RoPE lacks robust semantic channels since low frequencies can still rotate to arbitrary value over a long enough context.
+    - Author proposed to remove the low frequencies positional encoding to provide robust semantic channels.
 
 
 
