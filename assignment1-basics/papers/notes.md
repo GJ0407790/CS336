@@ -6,21 +6,20 @@ This file notes down the important insights/highlights of the papers that are be
 ## [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) (Zhang 2019)
 
 ### LayerNorm
-$$
+```math
 y_i = \frac{x_i - \mu}{\sigma} \cdot g_i + b_i
-$$
-
-$$
+```
+```math
 \mu = \frac{1}{n} \sum^n_{i=1}x_i \hspace{15pt} 
 \sigma = \sqrt{\frac{1}{n} \sum^n_{i=1}(x_i - \mu)^2}
-$$
+```
 
 - LayerNorm has invariance on re-centering and re-scaling.
 
 ### RMSNorm
-$$
+```math
 y_i = \frac{x_i}{\sqrt{\frac{1}{n} \sum^n_{i=1}x_i^2}} \cdot g_i
-$$
+```
 
 - RMSNorm simplifies LayerNorm by removing the mean $\mu$ and bias $b$. This resulted in less computation without sacrificing performance.
 - Paper argued that only the re-scaling invariance matters.
@@ -47,13 +46,14 @@ $$
 - RoPE suggested using a rotation (refer to matrix below) to inject the positional information:
     - Let the original query and key vectors be $q$ and $k$ respectively.
     - The rotated vectors are $q' = R_{\theta} q$ and $k' = R_{\theta} k$.
-$$
+
+```math
 R_\theta =
 \begin{bmatrix}
 \cos{\theta} & -\sin{\theta} \\
 \sin{\theta} & \cos{\theta} \\
 \end{bmatrix}
-$$
+```
 
 - Rotation does not increase the norm of the vector thereby preventing exploding gradients.
 - RoPE provides both absolute and relative positional information.
@@ -65,13 +65,13 @@ $$
 - In particular, each rotation matrix is apply to pairs of embedding elements $\in \mathbb{R}^d$.
     - The angle increases linearly with the position. The angle at position 1 will be $\theta$, position 2 will be $2\theta$, position k will be $k\theta$.
     - The angle also decreases exponentially with the dimension.
-$$
+```math
 \theta_{i,k}=\frac{i}{\Theta^{(2k-1)/d}}, k \in \{1, \ldots, d/2\}
-$$
+```
 
 - An efficient implementation of RoPE for a single embedding at position $i$ is as follows:
 
-$$
+```math
 R^ix=
 \begin{bmatrix}
 x_1 \\
@@ -108,7 +108,7 @@ x_{d-1} \\
 \sin{\theta_{i,d/2}} \\
 \sin{\theta_{i,d/2}}
 \end{bmatrix}
-$$
+```
 
 ## [Round and round](https://arxiv.org/abs/2410.06205) (Barbero 2024)
 
